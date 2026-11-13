@@ -1,4 +1,7 @@
-"""应用层输出接口：维护输出流水，覆盖启动输出、暂停输出、归档流水等动作。"""
+"""应用层输出接口：维护输出流水，覆盖启动输出、暂停输出、归档流水等动作。
+
+输出前会核对上游汇总层的复核结论；待复核的度量变更会以待办形式同步到本模块。
+"""
 from __future__ import annotations
 
 from typing import Any
@@ -7,6 +10,7 @@ from fastapi import APIRouter, HTTPException, Query
 
 from app.schemas import ActionResult, EntryPayload, PageResult
 from app.services.ads import AdsService
+from app.services.factchange import fact_change_service
 
 router = APIRouter(prefix="/api/ads", tags=["应用层输出"])
 
@@ -48,9 +52,30 @@ def create_entry(payload: EntryPayload) -> ActionResult:
     return ActionResult(ok=True, message="输出流水已登记", entry=entry)
 
 
+@router.get("/{entry_id}/todo", response_model=dict)
+def todo(entry_id: int) -> dict[str, Any]:
+    """应用层输出的待办：未完成复核的度量变更不能当作已完成结果。"""
+    entry = service.get_entry(entry_id)
+    if entry is None:
+        raise HTTPException(status_code=404, detail=f"输出流水 {entry_id} 不存在或已归档")
+    overlap = fact_change_service.downstream_state(entry)
+    if overlap:
+        entry.update(overlap)
+    return {
+        "module": "ads",
+        "entry": entry,
+        "处理状态": entry.get("处理状态", ""),
+        "复核状态": entry.get("复核状态", ""),
+        "复核结论": entry.get("复核结论", ""),
+        "待办": entry.get("待办", ""),
+        "待复核变更": entry.get("待复核变更", ""),
+        "可输出": not bool(overlap) and entry.get("status") == "已完成",
+    }
+
+
 @router.post("/{entry_id}/actions", response_model=ActionResult)
 def run_action(entry_id: int, payload: EntryPayload) -> ActionResult:
-    """对单条输出流水执行启动输出、暂停输出、归档流水；不允许的动作会被拦下并说明原因。"""
+    """对单条输出流水执行启动输出、暂停输出、归档流水；待复核期间不允许按已完成结果输出。"""
     action = str(payload.values.get("action") or "").strip()
     entry, message = service.run_action(entry_id, action)
     if entry is None:

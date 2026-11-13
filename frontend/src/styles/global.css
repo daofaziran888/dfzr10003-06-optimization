@@ -33,3 +33,29 @@ body { margin: 0; background: #f6f8fb; color: #1f2937; }
 .link { border: none; background: none; color: var(--brand); cursor: pointer; padding: 0; }
 .page-foot { display: flex; justify-content: space-between; margin-top: 8px; font-size: 12px; color: var(--muted); }
 .error-text { color: #b42318; }
+
+/* 事实定义变更影响视图：事实页与汇总页共用同一套展示 */
+.impact-panel, .review-panel, .change-editor {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-top: 14px;
+}
+.impact-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.impact-head h3 { font-size: 14px; margin: 0; }
+.badge { font-size: 12px; padding: 2px 8px; border-radius: 10px; }
+.badge-warn { background: #fff4e5; color: #b54708; border: 1px solid #f7c987; }
+.badge-ok { background: #e9f7ef; color: #1a7f37; border: 1px solid #a6e0bb; }
+.impact-meta { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 16px; margin: 0 0 10px; }
+.impact-meta dt { font-size: 12px; color: var(--muted); }
+.impact-meta dd { margin: 2px 0 0; font-size: 13px; }
+.impact-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 10px; }
+.impact-columns h4 { font-size: 13px; margin: 0 0 6px; }
+.impact-columns ul { list-style: none; margin: 0; padding: 0; }
+.impact-columns li { display: flex; justify-content: space-between; gap: 10px; font-size: 12px; padding: 3px 6px; border-bottom: 1px dashed var(--border); }
+.impact-columns li span { color: var(--muted); }
+.impact-columns li.changed strong { color: #b42318; }
+.impact-table { margin-top: 4px; }
+.row-warn { background: #fffaf0; }
+.notice-text { color: #1a7f37; }

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { request } from '@/api/client'
+import type { ChangeTicket } from '@/api/types'
+import ChangeImpactPanel from '@/components/ChangeImpactPanel'
 
 const ENDPOINT = '/api/dws'
 const columns = [
@@ -18,6 +20,10 @@ const actions = [
   "暂停聚合",
   "归档流水"
 ]
+const reviewActions = [
+  "重跑聚合",
+  "核对聚合"
+]
 const statuses = [
   "草稿",
   "运行中",
@@ -25,18 +31,9 @@ const statuses = [
   "已完成"
 ]
 const stats = [
-  {
-    "label": "聚合流水总数",
-    "value": 0
-  },
-  {
-    "label": "运行中聚合",
-    "value": 0
-  },
-  {
-    "label": "已暂停聚合",
-    "value": 0
-  }
+  { label: "聚合流水总数", key: "total" },
+  { label: "受变更影响聚合", key: "affected" },
+  { label: "待复核聚合", key: "pending" },
 ]
 
 type Row = Record<string, string | number | null>
@@ -45,7 +42,10 @@ export default function DwsView() {
   const [rows, setRows] = useState<Row[]>([])
   const [total, setTotal] = useState(0)
   const [errorMessage, setErrorMessage] = useState('')
+  const [noticeMessage, setNoticeMessage] = useState('')
   const [filters, setFilters] = useState<Record<string, string>>({})
+  const [review, setReview] = useState<{ tickets: ChangeTicket[] } | null>(null)
+  const [selectedId, setSelectedId] = useState<number | null>(null)
   const filterFields = useMemo(() => columns.slice(0, 3), [])
 
   const reload = useCallback(async () => {
@@ -68,20 +68,53 @@ export default function DwsView() {
     void reload()
   }, [reload])
 
+  const loadReview = useCallback(async (row: Row | null) => {
+    if (row === null) {
+      setReview(null)
+      setSelectedId(null)
+      return
+    }
+    setSelectedId(Number(row.id))
+    try {
+      const response = await request(`${ENDPOINT}/${row.id}/review`)
+      if (!response.ok) {
+        throw new Error('复核视图读取失败')
+      }
+      setReview(await response.json())
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : '复核视图读取失败')
+    }
+  }, [])
+
   async function runAction(action: string, row: Row) {
     setErrorMessage('')
+    setNoticeMessage('')
     try {
       const response = await request(`${ENDPOINT}/${row.id}/actions`, {
         method: 'POST',
         body: JSON.stringify({ action }),
       })
+      const payload = await response.json()
       if (!response.ok) {
         throw new Error('汇总层聚合动作未生效，请稍后重试')
       }
+      if (payload.ok === false) {
+        throw new Error(payload.message)
+      }
+      setNoticeMessage(payload.message)
       await reload()
+      if (selectedId === Number(row.id)) {
+        await loadReview(row)
+      }
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : '汇总层聚合操作失败')
     }
+  }
+
+  const statsValue: Record<string, number> = {
+    total,
+    affected: rows.filter((row) => Boolean(row.影响原因) || Boolean(row.复核状态)).length,
+    pending: rows.filter((row) => row.复核状态 === '待复核' || row.复核状态 === '待核对').length,
   }
 
   return (
@@ -105,7 +138,7 @@ export default function DwsView() {
         {stats.map((item) => (
           <article key={item.label} className="stat-card">
             <span className="stat-label">{item.label}</span>
-            <strong className="stat-value">{item.value}</strong>
+            <strong className="stat-value">{statsValue[item.key]}</strong>
           </article>
         ))}
       </div>
@@ -129,32 +162,72 @@ export default function DwsView() {
         <thead>
           <tr>
             {columns.map((column) => <th key={column}>{column}</th>)}
+            <th>事实版本</th>
+            <th>复核状态</th>
+            <th>影响窗口</th>
             <th>可执行动作</th>
           </tr>
         </thead>
         <tbody>
           {rows.map((row) => (
-            <tr key={String(row.id)}>
+            <tr key={String(row.id)} className={row.复核状态 && row.复核状态 !== '已核对' ? 'row-warn' : ''}>
               {columns.map((column) => <td key={column}>{row[column] ?? '—'}</td>)}
+              <td>{row.事实编号 ? `${row.事实编号} · v${row.事实版本}` : '—'}</td>
+              <td>{row.复核状态 || '—'}</td>
+              <td>{row.影响窗口 || '—'}</td>
               <td className="row-actions">
                 {actions.map((action) => (
                   <button key={action} className="link" type="button" onClick={() => void runAction(action, row)}>
                     {action}
                   </button>
                 ))}
+                <button className="link" type="button" onClick={() => void loadReview(row)}>
+                  查看影响
+                </button>
               </td>
             </tr>
           ))}
           {rows.length === 0 && (
             <tr>
-              <td className="empty-state" colSpan={columns.length + 1}>暂无汇总层聚合数据，可先登记聚合流水</td>
+              <td className="empty-state" colSpan={columns.length + 4}>暂无汇总层聚合数据，可先登记聚合流水</td>
             </tr>
           )}
         </tbody>
       </table>
 
+      {selectedId !== null && review && (
+        <section className="review-panel">
+          <header className="impact-head">
+            <h3>受影响聚合复核</h3>
+            <button className="link" type="button" onClick={() => void loadReview(null)}>收起</button>
+          </header>
+          {review.tickets.length === 0 && (
+            <p className="page-desc">该聚合流水当前没有事实定义变更待复核。</p>
+          )}
+          {review.tickets.map((ticket) => (
+            <ChangeImpactPanel key={ticket.变更编号} ticket={ticket} title="汇总层影响视图" />
+          ))}
+          <div className="row-actions">
+            {reviewActions.map((action) => (
+              <button
+                key={action}
+                className="btn"
+                type="button"
+                onClick={() => {
+                  const row = rows.find((item) => Number(item.id) === selectedId)
+                  if (row) void runAction(action, row)
+                }}
+              >
+                {action}
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+
       <footer className="page-foot">
         <span>共 {total} 条汇总层聚合记录</span>
+        {noticeMessage && <span className="notice-text">{noticeMessage}</span>}
         {errorMessage && <span className="error-text">{errorMessage}</span>}
       </footer>
     </section>

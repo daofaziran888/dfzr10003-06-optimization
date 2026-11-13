@@ -4,21 +4,29 @@
 """
 from __future__ import annotations
 
+import threading
 from typing import Any
 
 from app.seed import SEED_ROWS
 
 
 class Store:
+    # 变更待办是跨模块的内部登记表，不在运营概览里当业务模块展示。
+    INTERNAL_MODULES = {"factchange"}
+
     def __init__(self) -> None:
         self._tables: dict[str, list[dict[str, Any]]] = {
             name: [dict(row) for row in rows] for name, rows in SEED_ROWS.items()
         }
+        # 内存仓库是进程级单例，变更检测、复核、状态流转都在这里串行化：
+        # 同一度量变更的并发检测只能落一条待办，历史聚合的写入也不会互相覆盖。
+        self.lock = threading.RLock()
 
     def module_names(self) -> list[str]:
-        return sorted(self._tables)
+        return sorted(name for name in self._tables if name not in self.INTERNAL_MODULES)
 
     def rows(self, module: str) -> list[dict[str, Any]]:
+        # 内部登记表可能还没有数据，这里按需建表，不把它算成业务模块。
         return self._tables.setdefault(module, [])
 
     def find(self, module: str, entry_id: int) -> dict[str, Any] | None:

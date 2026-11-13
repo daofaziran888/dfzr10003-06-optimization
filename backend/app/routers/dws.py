@@ -1,4 +1,8 @@
-"""汇总层聚合接口：维护聚合流水，覆盖启动聚合、暂停聚合、归档流水等动作。"""
+"""汇总层聚合接口：维护聚合流水，覆盖启动聚合、暂停聚合、归档流水等动作。
+
+事实定义口径变更后，本页承担受影响聚合的重跑与核对；只有这里核对通过，
+新版本才允许在应用层输出。
+"""
 from __future__ import annotations
 
 from typing import Any
@@ -48,11 +52,25 @@ def create_entry(payload: EntryPayload) -> ActionResult:
     return ActionResult(ok=True, message="聚合流水已登记", entry=entry)
 
 
+@router.get("/{entry_id}/review", response_model=dict)
+def review_detail(entry_id: int) -> dict[str, Any]:
+    """汇总页读取该聚合流水的影响窗口、旧/新口径与复核结论，与事实页共用同一份视图。"""
+    entry = service.get_entry(entry_id)
+    if entry is None:
+        raise HTTPException(status_code=404, detail=f"聚合流水 {entry_id} 不存在或已归档")
+    return service.review_view(entry_id)
+
+
 @router.post("/{entry_id}/actions", response_model=ActionResult)
 def run_action(entry_id: int, payload: EntryPayload) -> ActionResult:
-    """对单条聚合流水执行启动聚合、暂停聚合、归档流水；不允许的动作会被拦下并说明原因。"""
+    """对单条聚合流水执行启动聚合、暂停聚合、归档流水，以及变更后的重跑与核对。"""
     action = str(payload.values.get("action") or "").strip()
-    entry, message = service.run_action(entry_id, action)
+    entry, message = service.run_action(
+        entry_id,
+        action,
+        conclusion=payload.values.get("复核结论"),
+        values=payload.values,
+    )
     if entry is None:
         return ActionResult(ok=False, message=message)
     return ActionResult(ok=True, message=message, entry=entry)

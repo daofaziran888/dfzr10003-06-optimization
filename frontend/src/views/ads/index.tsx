@@ -25,18 +25,9 @@ const statuses = [
   "已完成"
 ]
 const stats = [
-  {
-    "label": "输出流水总数",
-    "value": 0
-  },
-  {
-    "label": "运行中输出",
-    "value": 0
-  },
-  {
-    "label": "已暂停输出",
-    "value": 0
-  }
+  { label: "输出流水总数", key: "total" },
+  { label: "待复核输出", key: "pending" },
+  { label: "可正常输出", key: "ready" },
 ]
 
 type Row = Record<string, string | number | null>
@@ -45,6 +36,7 @@ export default function AdsView() {
   const [rows, setRows] = useState<Row[]>([])
   const [total, setTotal] = useState(0)
   const [errorMessage, setErrorMessage] = useState('')
+  const [noticeMessage, setNoticeMessage] = useState('')
   const [filters, setFilters] = useState<Record<string, string>>({})
   const filterFields = useMemo(() => columns.slice(0, 3), [])
 
@@ -70,18 +62,30 @@ export default function AdsView() {
 
   async function runAction(action: string, row: Row) {
     setErrorMessage('')
+    setNoticeMessage('')
     try {
       const response = await request(`${ENDPOINT}/${row.id}/actions`, {
         method: 'POST',
         body: JSON.stringify({ action }),
       })
+      const payload = await response.json()
       if (!response.ok) {
         throw new Error('应用层输出动作未生效，请稍后重试')
       }
+      if (payload.ok === false) {
+        throw new Error(payload.message)
+      }
+      setNoticeMessage(payload.message)
       await reload()
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : '应用层输出操作失败')
     }
+  }
+
+  const statsValue: Record<string, number> = {
+    total,
+    pending: rows.filter((row) => row.处理状态 === '待复核（暂停输出）').length,
+    ready: rows.filter((row) => row.处理状态 === '已复核').length,
   }
 
   return (
@@ -105,7 +109,7 @@ export default function AdsView() {
         {stats.map((item) => (
           <article key={item.label} className="stat-card">
             <span className="stat-label">{item.label}</span>
-            <strong className="stat-value">{item.value}</strong>
+            <strong className="stat-value">{statsValue[item.key]}</strong>
           </article>
         ))}
       </div>
@@ -129,13 +133,19 @@ export default function AdsView() {
         <thead>
           <tr>
             {columns.map((column) => <th key={column}>{column}</th>)}
+            <th>处理状态</th>
+            <th>复核结论</th>
+            <th>待办</th>
             <th>可执行动作</th>
           </tr>
         </thead>
         <tbody>
           {rows.map((row) => (
-            <tr key={String(row.id)}>
+            <tr key={String(row.id)} className={row.处理状态 === '待复核（暂停输出）' ? 'row-warn' : ''}>
               {columns.map((column) => <td key={column}>{row[column] ?? '—'}</td>)}
+              <td>{row.处理状态 || '正常'}</td>
+              <td>{row.复核结论 || '—'}</td>
+              <td>{row.待办 || '—'}</td>
               <td className="row-actions">
                 {actions.map((action) => (
                   <button key={action} className="link" type="button" onClick={() => void runAction(action, row)}>
@@ -147,7 +157,7 @@ export default function AdsView() {
           ))}
           {rows.length === 0 && (
             <tr>
-              <td className="empty-state" colSpan={columns.length + 1}>暂无应用层输出数据，可先登记输出流水</td>
+              <td className="empty-state" colSpan={columns.length + 4}>暂无应用层输出数据，可先登记输出流水</td>
             </tr>
           )}
         </tbody>
@@ -155,6 +165,7 @@ export default function AdsView() {
 
       <footer className="page-foot">
         <span>共 {total} 条应用层输出记录</span>
+        {noticeMessage && <span className="notice-text">{noticeMessage}</span>}
         {errorMessage && <span className="error-text">{errorMessage}</span>}
       </footer>
     </section>
